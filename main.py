@@ -3,10 +3,13 @@ import re
 import json
 import os
 import time
+import threading
 
 
 class Bilibili:
     def __init__(self):
+        self.audio_url = None
+        self.video_url = None
         os.chdir('./')
         if os.path.exists('cache'):  # 建立缓存目录
             pass
@@ -39,42 +42,33 @@ class Bilibili:
             self.title = re.findall('<title data-vue-meta="true">(.*?)</title>', html_data)[0]  # 寻找视频标题
         if self.sign == 1:
             self.title = re.findall('<title>(.*?)</title>', html_data)[0]
-        print(self.title + '正在下载视频中...')
+        print(self.title + '\n正在下载视频中...\n')
         media_data = re.findall('<script>window.__playinfo__=(.*?)</script>', html_data)[0]  # 寻找视频源数据
         json_data = json.loads(media_data)
-        audio_url = json_data['data']['dash']['audio'][0]['baseUrl']
-        video_url = json_data['data']['dash']['video'][0]['baseUrl']
+        self.audio_url = json_data['data']['dash']['audio'][0]['baseUrl']
+        self.video_url = json_data['data']['dash']['video'][0]['baseUrl']
 
-        audio_response = requests.get(audio_url, headers=self.header, stream=True)  # 注意设置stream=True
-        audio_start_time = time.time()
-        downsize = 0
+    def download_audio(self):
+        print('音频下载开始>>>>>')
+        audio_response = requests.get(self.audio_url, headers=self.header, stream=True)  # 注意设置stream=True
         with open('cache/a.mp3', 'wb') as f:  # 写入音频
-            for i in audio_response.iter_content(10000):  # 设置断点下载,用来获取下载速度
+            for i in audio_response.iter_content(10000):  # 设置断点下载,防止爆内存
                 f.write(i)
-                downsize += len(i)
-                line = '音频下载速度 : %f MB/s     音频总下载量 : %f MB'
-                line = line % (downsize / 1024 / 1024 / (time.time()-audio_start_time), downsize / 1024 / 1024)
-                print('\r' + line, end='')
-        print('\n音频下载完成')
+        print('音频下载完成!')
 
-        video_response = requests.get(video_url, headers=self.header, stream=True)
-        video_start_time = time.time()
-        downsize = 0
+    def download_video(self):
+        print('视频下载开始>>>>>')
+        video_response = requests.get(self.video_url, headers=self.header, stream=True)
         with open('cache/b.mp4', 'wb') as f:  # 写入视频
             for i in video_response.iter_content(10000):
                 f.write(i)
-                downsize += len(i)
-                line = '视频下载速度 : %f MB/s     视频总下载量 : %f MB'
-                line = line % (downsize / 1024 / 1024 / (time.time() - video_start_time), downsize / 1024 / 1024)
-                print('\r' + line, end='')
-        print('\n视频下载完成')
+        print('视频下载完成!')
 
     def compound(self):  # 利用ffmpeg进行音频和视频的合成方法
         cmd = 'ffmpeg -i cache/b.mp4 -i cache/a.mp3 -c:v copy -c:a aac -strict experimental downloads/c.mp4'
         os.system(cmd)
         os.remove("cache/a.mp3")
         os.remove("cache/b.mp4")
-        print('清除cache成功')
         os.chdir('downloads')
         os.rename('c.mp4', self.title + '.mp4')
         print('视频合成结束:', self.title)
@@ -88,4 +82,9 @@ if __name__ == "__main__":
         startTime = time.time()
         a = Bilibili()
         a.crawl()
+        t1 = threading.Thread(target=a.download_audio)
+        t2 = threading.Thread(target=a.download_video)
+        t1.start()
+        t2.start()
+        t2.join()
         a.compound()
